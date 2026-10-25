@@ -1226,14 +1226,54 @@ mares_genius_foreach (dc_parser_t *abstract, dc_sample_callback_t callback, void
 					continue;
 				}
 
+				// DiveSync patch: the original upstream mapping only decoded ascent/deco
+				// alarms and discarded everything else (tank pressure, CNS/MOD, dive time,
+				// gas-related alarms) as SAMPLE_EVENT_NONE even though the bit is present in
+				// `alarms`. Map every known ALARM_* bit to the closest existing
+				// parser_sample_event_t bucket, and preserve the raw Mares alarm index in
+				// event.value (see ALARM_* defines above) so downstream consumers can tell
+				// e.g. "half tank" (ALARM_TANK_HALF_REACHED) apart from "reserve reached"
+				// (ALARM_TANK_RESERVE_REACHED) even though both share SAMPLE_EVENT_TRANSMITTER.
 				switch (i) {
+				case ALARM_SLOW_DOWN:
 				case ALARM_FAST_ASCENT:
 				case ALARM_UNCONTROLLED_ASCENT:
 					sample.event.type = SAMPLE_EVENT_ASCENT;
 					break;
 				case ALARM_MISSED_DECO:
 				case ALARM_DIVE_VIOLATION_DECO:
+				case ALARM_RUN_AWAY_DECO:
 					sample.event.type = SAMPLE_EVENT_CEILING;
+					break;
+				case ALARM_NODECO_2MIN:
+				case ALARM_NODECO_DECO:
+					sample.event.type = SAMPLE_EVENT_DECOSTOP;
+					break;
+				case ALARM_LOW_TANK_PRESSURE:
+				case ALARM_TANK_RESERVE_REACHED:
+				case ALARM_TANK_HALF_REACHED:
+				case ALARM_TANK_LOST_LINK:
+				case ALARM_MULTIGAS_ATANKISLOW:
+					sample.event.type = SAMPLE_EVENT_TRANSMITTER;
+					break;
+				case ALARM_MAX_DIVE_DEPTH:
+					sample.event.type = SAMPLE_EVENT_MAXDEPTH;
+					break;
+				case ALARM_DIVETIME_HALFTIME:
+				case ALARM_DIVETIME_FULLTIME:
+					sample.event.type = SAMPLE_EVENT_DIVETIME;
+					break;
+				case ALARM_MOD_REACHED:
+				case ALARM_CNS_DANGER:
+				case ALARM_CNS_EXTREME:
+					sample.event.type = SAMPLE_EVENT_OLF;
+					break;
+				case ALARM_GAS_SWITCHPOINT:
+				case ALARM_GAS_IGNORED:
+				case ALARM_GAS_CHANGED:
+				case ALARM_GAS_NOTCHANGED:
+				case ALARM_GAS_ADDED:
+					sample.event.type = SAMPLE_EVENT_GASCHANGE;
 					break;
 				default:
 					sample.event.type = SAMPLE_EVENT_NONE;
@@ -1243,7 +1283,7 @@ mares_genius_foreach (dc_parser_t *abstract, dc_sample_callback_t callback, void
 				if (sample.event.type != SAMPLE_EVENT_NONE) {
 					sample.event.time = 0;
 					sample.event.flags = 0;
-					sample.event.value = 0;
+					sample.event.value = i;
 					if (callback) callback (DC_SAMPLE_EVENT, &sample, userdata);
 				}
 			}
